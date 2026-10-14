@@ -19,115 +19,44 @@ data earns credit; *"80% seemed reasonable"* does not.
 
 ---
 
-## 1. A matching query completes all three tools
+1. Given a query that matches at least one listing, the agent completes all
+   three tool calls and returns a fit card — in at least 4 of 5 tries.
 
-Given a query that matches at least one listing, the agent completes all three
-tool calls and returns a fit card — in at least 4 of 5 tries.
+**Why this target:** My search is a plain keyword match where every word in the
+query has to appear in the listing's title, description or style_tags. Some
+phrasings will miss even when a suitable item exists in the file, so I left room
+for one of five to come back empty and stop early rather than completing.
 
-**Why this target:**
-<!-- Why 4 of 5 and not 5 of 5? Something about your search, probably —
-     "my search is a plain keyword match and some phrasings will miss" is a
-     real answer. -->
+2. Given a query that matches no listings, the agent stops before calling
+   suggest_outfit and returns a message naming what to change — 5 of 5 tries.
 
----
+**Why this target:** The branch is an `if` on an empty list in my own code, not
+a model decision. Nothing about it varies between runs, so anything less than
+5 of 5 would mean the branch is wrong rather than unlucky.
 
-## 2. An impossible query stops before the second tool
+3. The item stored in session["selected_item"] is the same item passed to
+   suggest_outfit — in 5 of 5 runs.
 
-Given a query that matches no listings, the agent stops before calling
-`suggest_outfit` and returns a message naming what to change — 5 of 5 tries.
+**Why this target:** This step is plain Python moving a value in and out of a
+dictionary — no model call, no randomness. If it works once it works every time,
+so anything less than 5 of 5 would mean a real bug rather than normal variation.
+A looser target would be one I couldn't miss.
 
-**Why this target:**
-<!-- Why is 5 of 5 reasonable here when criterion 1 isn't? What's different
-     about this path? -->
+4. Running the same query three times with the cache off, no two fit cards are
+   identical text — in 5 of 5 attempts.
 
----
+**Why this target:** TEMPERATURE is 0.9, so the model is sampling rather than
+picking the most likely wording every time. I ran this three times and got three
+different captions with different outfit pairings each time. I set 5 of 5 rather
+than 4 of 5 because at this temperature an identical repeat would mean something
+is wrong — the cache is on, or the temperature setting isn't taking effect —
+rather than normal variation.
 
-## 3. Something about state
+5. A run that finds at least one listing makes no more than 2 model calls —
+   in 5 of 5 runs.
 
-<!-- YOU WRITE THIS ONE.
-
-     How would you know that the item your search found is the same item the
-     next tool received? Name something countable or observable.
-
-     This is the criterion people find hardest, because state failure doesn't
-     look like state failure — it looks like a tool problem. Something that
-     compares session["selected_item"] against what actually reached
-     suggest_outfit is the shape you're after. -->
-
-
-
-**Why this target:**
-
-
-
----
-
-## 4. Something about the fit card
-
-<!-- YOU WRITE THIS ONE.
-
-     The fit card calls a model, so the same input can produce different words
-     each time. That's not a bug — it's the nature of the tool. So what would
-     make it acceptable?
-
-     Think about what you'd actually be unhappy to see. A caption that never
-     mentions the price? Two different items producing the same opening
-     sentence? A card longer than a caption anyone would post? Any of those can
-     be turned into a number. -->
-
-
-
-**Why this target:**
-
-
-
----
-
-## 5. Your choice
-
-<!-- YOU WRITE THIS ONE TOO.
-
-     Pick something you actually care about getting right. Speed, the empty
-     wardrobe path, what happens when the model can't be reached, whether the
-     search respects a price ceiling — anything, as long as it names a number
-     or an observable outcome. -->
-
-
-
-**Why this target:**
-
-
-
----
-
-<!-- ─────────────────────────────────────────────────────────────────────────
-     UNIT 4 — read this before you change anything above.
-
-     If a criterion turns out to be BROKEN rather than merely unmet, you can
-     revise it, and that earns credit. But never delete or edit the original
-     line. Add the revision underneath it, like this:
-
-         ## 4. Something about the fit card
-
-         The fit card is different every time.
-
-         **Why this target:** ...
-
-         > **Revised in unit 4:** For 5 different items, the 5 fit cards share
-         > no opening sentence.
-         >
-         > **Why revised:** "different" wasn't checkable — two cards that
-         > differed by one word still counted. The new version is something I
-         > can actually score.
-
-     That's a revision because the criterion couldn't be MEASURED.
-
-     Lowering a target because you missed it is not a revision, and it costs
-     you the point:
-
-         ✗ "I said the empty search stops it 5 of 5 times, but I got 3 of 5,
-            so 3 of 5 is more realistic."
-
-     A number you missed stays where it is, gets diagnosed, and gets a fix
-     attempted. That's where the points are.
-     ───────────────────────────────────────────────────────────────────────── -->
+**Why this target:** My loop calls the model exactly twice on the happy path,
+once in suggest_outfit and once in create_fit_card. Search uses no model at all.
+That count is fixed by the structure of my loop, not by anything the model
+decides, so a third call would mean the loop ran a step twice or failed to stop
+— the runaway-loop failure, which is the one I most want to catch.
