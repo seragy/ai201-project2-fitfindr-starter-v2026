@@ -499,26 +499,83 @@ The model-unavailable handler: `suggest_outfit` and `create_fit_card` re-raise
 
      `python run_eval.py --label after` -->
 
-**What I changed:**
+**What I changed:** One prompt, in `tools.py::create_fit_card`. I added one
+instruction and left everything else alone:
 
-**Which failure it was meant to fix:**
+```diff
+         "specific about the vibe. "
++        "Don't open with how or where you got it — no "
++        "'Scored', 'Just scored', 'Found', 'Snagged' or 'Copped' — and keep the "
++        "price and platform out of the first sentence. Open with the vibe, the "
++        "outfit, or a moment you'd wear it in. "
+         "At most two hashtags. Return only the caption."
+```
+
+No other code, scenario, or setting changed between the two runs.
+
+**Which failure it was meant to fix:** Criterion 4 (revised), 1 of 5. The
+diagnosis put the miss in the model's output, caused by the prompt: asking for
+item, price and platform made "Scored this \<item\> on \<platform\> for
+$\<price\>" the obvious first sentence, and 25 of 35 cards opened with
+"Scored". So the change targets the opening sentence directly.
 
 ### Run Log — After
 
+Results file: [`results/run_2026-10-14_1956_after.md`](results/run_2026-10-14_1956_after.md), produced by
+`run_eval.py::main` with the same eight scenarios, five tries each, cache off.
+Marked by `score_run.py` with the same rules as the before run.
+
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. Matching query completes all three tools with a fit card | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. Impossible query stops before `suggest_outfit` with a message naming what to change | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. `session["selected_item"]` is the item passed to `suggest_outfit` | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Same query ×3, cache off: no two fit cards identical text | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4 (revised). Same query ×3: no two fit cards share their first three words | 5 of 5 | PASS | PASS | PASS | PASS | FAIL | **MISSED (4/5)** |
+| 5. A matching run makes ≤ 2 model calls | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Did it help, and how do I know:**
+**Side by side**
 
-<!-- If it made things worse, say that. Honestly reported, that earns full
-     credit and is more interesting than one that worked. -->
+| Criterion | Before | After |
+|---|---|---|
+| 1 | MET (5/5) | MET (5/5) |
+| 2 | MET (5/5) | MET (5/5) |
+| 3 | MET (5/5) | MET (5/5) |
+| 4 (original) | MET (5/5) | MET (5/5) |
+| 4 (revised) | MISSED (1/5) | MISSED (4/5) |
+| 5 | MET (5/5) | MET (5/5) |
+| Fit cards opening with "Scored" / "Just scored" | 25 of 35 | 0 of 35 |
+| Fit cards missing the price or the platform | 0 of 35 | 0 of 35 |
 
+**Did it help, and how do I know:** It helped, but it didn't fix the problem,
+and the revised criterion is still missed. It went from 1 of 5 to 4 of 5 on the
+same scenarios and the same scoring rule. "Scored" disappeared completely, and
+no card lost its price or platform. But the after run found a new default:
+**12 of 35 cards open with "Nothing beats"**, and "Channeling major/peak" opens
+another 10. Attempt 5 failed because all three cards opened "Nothing beats the":
 
+```
+A: Nothing beats the structured shoulders on this Wrangler cropped denim jacket for nailing that effortless streetwear aesthetic. I grabbed it on Poshmark for $42 and it's already the ultimate blank canvas for my weekend double denim fits. #denimjacket #poshmarkfinds
+B: Nothing beats the structured shoulders on this vintage Wrangler denim jacket for throwing over an oversized crewneck. Grabbed it on Poshmark for $42 and it's practically begging for a high-low streetwear moment with some khaki trousers and combat boots. #denimstyle #poshmarkfinds
+C: Nothing beats the structured shoulders on this vintage Wrangler denim jacket for throwing together a high-contrast double denim look. I grabbed it on Poshmark for $42 and it's basically the ultimate blank canvas for customizing. Going to live in this all through streetwear season. #denimstyle #poshfinds
+```
+
+Attempt 1, for comparison, had three different openers:
+
+```
+A: The ultimate vintage streetwear vibe unlocked with this cropped Wrangler denim jacket. It's giving major structured-shoulder energy and is the blank canvas my closet needed. Grabbed it on Poshmark for $42 and honestly can't wait to style it two ways. #DenimStyle #PoshmarkFinds
+B: The ultimate light wash Wrangler cropped denim jacket is giving effortless vintage streetwear energy. Grabbed it on Poshmark for just $42, and it's basically a blank canvas waiting for some pins. Already planning to wear it with dark denim and chunky sneakers on heavy rotation. #denimjacket #streetwear
+C: Nothing beats that effortless 90s streetwear vibe when you throw on the ultimate cropped Wrangler jacket over a black zip hoodie and khaki trousers. This light wash beauty was an absolute steal at $42 on Poshmark. Ready to customize it or just wear it on repeat all season long. #denimstyle #streetwear
+```
+
+So the change worked on the symptom I named and missed the cause. Banning one
+opener just moved the model to its next most likely one. The prompt still never
+gives the model a *reason* to open differently from one run to the next. The
+prompt's other instruction, keeping the price and platform out of the first
+sentence, was followed in 33 of 35 cards. The attempt 5 cards also show how
+narrow the new default is: they share their first eight words, "Nothing beats
+the structured shoulders on this", which comes almost straight from the
+listing's description. So the first three words understate how alike they are.
 
 ---
 
@@ -528,7 +585,40 @@ The model-unavailable handler: `suggest_outfit` and `create_fit_card` re-raise
      you did. "I ran out of time" is fine if it's true. Pretending nothing is
      left is not. -->
 
+**Criterion 4 (revised): MISSED, 4 of 5 after the fix.** The next thing I'd
+try is giving each run a different opening angle chosen in code: for example,
+pick one of "the outfit", "a place you'd wear it", "the texture or fit", or
+"what it replaces in your closet" at random and put it in the prompt. Then the
+variety comes from the input rather than from hoping the model samples away
+from its favourite phrase. Banning more phrases ("Nothing beats", "Channeling")
+would just repeat what I already did: the model would find its next default. I
+stopped here because the brief allows one change per run, and making a second
+one would leave me unable to tell which change did what.
 
+**Criteria that pass but shouldn't be trusted yet.** These aren't misses, but
+the Verdicts section explains why they passed easily:
+
+- **Criterion 1** used one phrasing on a deterministic search, so its own
+  reason ("some phrasings will miss") was never tested. It also passes a fit
+  card for the wrong item. `search_listings('graphic tee')` still returns the
+  mesh long-sleeve top, because substring matching hits "graphic tee" in its
+  description. I'd test five different phrasings and check the selected item's
+  category.
+- **Criterion 3** passes by construction. I'd check what reached the model
+  (the item title in `suggest_outfit`'s prompt), not just what the session
+  handed over.
+
+**Other known gaps:**
+
+- **`wardrobe_used` doesn't reflect what happened.** It's set from whether the
+  wardrobe has items, not from whether the model actually used them. Now that a
+  bad key stops the run, the case where it was misleading (a fallback outfit
+  with `wardrobe_used=True`) only happens if the model returns empty text.
+- **Only `ModelUnavailable` is surfaced.** Running out of rate-limit retries
+  raises a `RuntimeError` inside `generate()`, and the tools still turn that into
+  a fallback outfit or caption. The run would look complete. I didn't trigger
+  this, because it needs the per-minute quota exhausted for five retries in a
+  row.
 
 <!-- ═════════════════════════════════════════════════════════════════════
 

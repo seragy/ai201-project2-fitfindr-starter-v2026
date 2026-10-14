@@ -273,7 +273,11 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
         f"How it'll be styled:\n{outfit}\n\n"
         "Write a 2-4 sentence caption someone would actually post about this "
         "find. Mention the item, its price and the platform once each, and be "
-        "specific about the vibe. At most two hashtags. Return only the caption."
+        "specific about the vibe. Don't open with how or where you got it — no "
+        "'Scored', 'Just scored', 'Found', 'Snagged' or 'Copped' — and keep the "
+        "price and platform out of the first sentence. Open with the vibe, the "
+        "outfit, or a moment you'd wear it in. At most two hashtags. Return "
+        "only the caption."
     )
     system = "You write short, casual social captions. No preamble, no quotes around the caption."
 
