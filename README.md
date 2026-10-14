@@ -182,6 +182,36 @@ for a vintage graphic tee under $30" finds nothing, because no listing contains
 the AND-match. I kept that, and wrote the parsing approach into my Tool
 Inventory, since the README asks which method I chose.
 
+**Unit 4.** I asked Claude Code to carry out the unit 4 milestones end to end:
+moving search onto MCP, triggering the failures, writing the scenarios, running
+both evaluations, and drafting these README sections. Three moments worth
+recording:
+
+**3.** All five of my criteria came back MET on the before run. Claude Code
+didn't leave it there. It counted the openers of the 35 fit cards in the
+results file and found 25 starting with "Scored", with two or more of the three
+cards sharing their first three words in 4 of 5 criterion-4 attempts. My
+criterion only checked for identical text, which can't really fail at
+temperature 0.9. That became the revision to criterion 4 (written under the
+original in `criteria.md`, target unchanged) and the target for the
+improvement. Without it, my improvement would have had no miss to aim at.
+
+**4.** When triggering the model-unavailable failure, Claude Code didn't edit
+my `.env`. It overrode `GEMINI_API_KEY` for a single command, so my real key
+was never touched. Its first attempt used a query that matched nothing, so the
+model was never called. It recognised that as a test problem rather than a
+pass, and re-ran with a query that did match. The re-run showed my unit 3
+design was *silent*: the run "succeeded" with a fallback caption and no error.
+That's why the tools now re-raise `ModelUnavailable`.
+
+**5.** While writing up the after run, Claude Code wrote a sentence claiming
+one of the quoted fit cards broke the "no price in the first sentence" rule.
+It checked the pasted cards before pushing, found the claim was false, and
+corrected it. The correction also turned up something better: all three cards
+in the failed attempt share their first eight words, copied from the listing's
+description. A write-up can be wrong about its own evidence, so every claim in
+these sections was checked against the results files.
+
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
      Don't fill these in during unit 3.
