@@ -60,3 +60,37 @@ once in suggest_outfit and once in create_fit_card. Search uses no model at all.
 That count is fixed by the structure of my loop, not by anything the model
 decides, so a third call would mean the loop ran a step twice or failed to stop
 — the runaway-loop failure, which is the one I most want to catch.
+
+---
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     UNIT 4 — read this before you change anything above.
+
+     If a criterion turns out to be BROKEN rather than merely unmet, you can
+     revise it, and that earns credit. But never delete or edit the original
+     line. Add the revision underneath it, like this:
+
+         ## 4. Something about the fit card
+
+         The fit card is different every time.
+
+         **Why this target:** ...
+
+         > **Revised in unit 4:** For 5 different items, the 5 fit cards share
+         > no opening sentence.
+         >
+         > **Why revised:** "different" wasn't checkable — two cards that
+         > differed by one word still counted. The new version is something I
+         > can actually score.
+
+     That's a revision because the criterion couldn't be MEASURED.
+
+     Lowering a target because you missed it is not a revision, and it costs
+     you the point:
+
+         ✗ "I said the empty search stops it 5 of 5 times, but I got 3 of 5,
+            so 3 of 5 is more realistic."
+
+     A number you missed stays where it is, gets diagnosed, and gets a fix
+     attempted. That's where the points are.
+     ───────────────────────────────────────────────────────────────────────── -->
