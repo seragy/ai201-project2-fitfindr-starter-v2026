@@ -23,7 +23,7 @@ the description has to say what is *in* the list.
 import re
 
 import config
-from generate import generate
+from generate import ModelUnavailable, generate
 from utils.data_loader import load_listings
 
 
@@ -207,6 +207,8 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
     try:
         text = generate(prompt, system=system).strip()
+    except ModelUnavailable:
+        raise  # the agent reports this; a fallback here would hide it
     except Exception as exc:  # noqa: BLE001 — keep the reason, don't crash the run
         text = ""
         reason = str(exc)
@@ -277,6 +279,8 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
 
     try:
         caption = generate(prompt, system=system).strip()
+    except ModelUnavailable:
+        raise  # the agent reports this; a fallback caption would hide it
     except Exception:  # noqa: BLE001 — a caption is never worth a crash
         caption = ""
 

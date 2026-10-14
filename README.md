@@ -82,6 +82,12 @@ word — without it, "looking for a vintage graphic tee" would match nothing.
 failures, so a bad key produces a fallback caption rather than surfacing the
 error to the agent. Unit 4's error handling will need this changed.
 
+> **Changed in unit 4 (Milestone 2):** both model-calling tools now re-raise
+> `ModelUnavailable` instead of falling back, and `run_agent` catches it and
+> stops with a message. Every other error still falls back as described above.
+> `search_listings` now runs on the MCP server in `mcp_server.py`; its
+> behaviour is unchanged.
+
 ---
 
 ## Planning Loop
@@ -258,19 +264,86 @@ that produced it:
 **Happy path**
 
 ```
+$ AI201_CACHE=0 python app.py ask 'vintage graphic tee under $30' --trace
+[1] parse_query (regex)
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 3 items: Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey, Y2K Baby Tee — Butterfly Print
+      →    branch: 3 found, selected_item = lst_006
+[3] suggest_outfit
+      in:  item=lst_006, wardrobe_items=10
+      out: Outfit one leans into classic grunge streetwear. Pair the graphic tee with your baggy straight-leg jeans, dark…
+[4] create_fit_card
+      in:  item=lst_006, outfit=590 chars
+      out: Scored this vintage-style bootleg graphic tee on Depop for just $24, and the worn-in black cotton is pure grun…
+[5] done
+      →    4 passes, 2 model calls this run (cache hits not counted)
 
+  Found:    Graphic Tee — 2003 Tour Bootleg Style — $24.0 on depop
+
+  Outfit:   Outfit one leans into classic grunge streetwear. Pair the graphic tee with your baggy straight-leg jeans, dark wash. Layer your vintage black denim jacket on top for extra texture, and lace up your black combat boots. Finish the look with your black crossbody bag.
+
+Outfit two plays with contrasting proportions and earth tones. Tuck the graphic tee into your wide-leg khaki trousers, secured with the brown leather belt. Throw your oversized grey crewneck sweatshirt over your shoulders for a casual layered effect, and step into your chunky white sneakers to complete the streetwear vibe.
+
+  Fit card: Scored this vintage-style bootleg graphic tee on Depop for just $24, and the worn-in black cotton is pure grunge streetwear perfection. It’s got that boxy fit that looks unreal paired with baggy denim or dressed up with trousers. #thriftfind #streetwear
+
+2 model calls this session, 691 prompt + 170 output tokens
 ```
 
 **Empty search**
 
 ```
+$ python app.py ask 'designer ballgown size XXS under $5' --trace
+[1] parse_query (regex)
+      in:  designer ballgown size XXS under $5
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping before suggest_outfit
+[3] done
+      →    2 passes, 0 model calls this run (cache hits not counted), stopped early
 
+  Nothing matched "designer ballgown" in size XXS at $5 or less. To find something: try a size other than XXS, or leave size out; raise the price ceiling above $5; use fewer or broader words — every word in the description has to match.
+
+0 model calls this session
 ```
+
+The empty-search trace is three steps against five, and there's no
+`suggest_outfit` step in it: the branch stops the loop.
 
 **On the MCP move:** <!-- what changed in your code, and whether anything
 behaved differently afterwards. If the rewire didn't work, say exactly where it
 broke — the error text and the last thing that worked. That earns the point in
 full. -->
+
+`search_listings` is registered in `mcp_server.py` with a description written
+for a caller who can't see the code: the units, the size-token rule, and the
+empty case (`[]`, never null). In `agent.py::run_agent`, the direct
+`search_listings(...)` call became `call_tool("search_listings", {...})`.
+Nothing behaved differently afterwards. Before rewiring I called it both ways on
+three inputs: a match, a no-match, and a listing with a brand. All three came
+back identical, including `[]` for no match and `None` for a missing brand
+(JSON `null` comes back as `None`). One new way to fail came with it: the
+server process might not start. `run_agent` now catches `MCPError` for that. I
+forced it by pointing the client at a server file that doesn't exist, and it
+stopped with: *"The listings search couldn't be reached, so nothing was
+searched. Try the same query again; if it keeps failing, run `python
+mcp_server.py` to see why the search server won't start."*
+
+### Failure modes, triggered on purpose
+
+| Failure | How I triggered it | Before a handler | What the agent says now |
+|---|---|---|---|
+| Empty search | `python app.py ask 'sequined opera cape size XXS under $3'` | Already handled by the unit 3 branch | *Nothing matched "sequined opera cape" in size XXS at $3 or less. To find something: try a size other than XXS, or leave size out; raise the price ceiling above $3; use fewer or broader words — every word in the description has to match.* |
+| Empty wardrobe | `python app.py ask 'denim jacket under $50' --empty-wardrobe` | Already handled: `suggest_outfit` asks for general advice | General advice that names no owned pieces: *"…pair this light wash cropped Wrangler jacket with high-waisted black cargo pants or baggy wide-leg trousers…"*, then a normal fit card. `wardrobe_used` is False. |
+| Model unavailable | Bad key for one command only: `GEMINI_API_KEY=<key with last char changed> python app.py ask 'platform sneakers size 8'` (an uncached query). The env var overrides `.env`, so the real key was never edited. | **Silent.** No crash, but the run looked successful. The outfit text said *"Couldn't get outfit ideas (The model rejected your API key…)"*, the fit card was the generic fallback *"New thrift find: the Platform Sneakers — White Chunky Sole. Already planning the first fit. 🛍️"*, and `session["error"]` stayed `None`. | *The search worked — it found the Platform Sneakers — White Chunky Sole ($48.0 on poshmark) — but the AI model couldn't be reached, so there's no outfit or fit card. The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com. If you just changed your key, put it back; otherwise wait a minute and ask again.* |
+
+The model-unavailable handler: `suggest_outfit` and `create_fit_card` re-raise
+`ModelUnavailable`, and `run_agent` catches it, writes the message above into
+`session["error"]` and stops, so `fit_card` stays `None`.
 
 
 

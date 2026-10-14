@@ -16,9 +16,10 @@ Build and test your three tools in `tools.py` first. Then come here.
 import re
 
 import config
+import generate
 import trace
 from tools import suggest_outfit, create_fit_card
-from mcp_client import call_tool
+from mcp_client import MCPError, call_tool
 from generate import ModelUnavailable
 
 
@@ -48,6 +49,7 @@ def new_session(query: str, wardrobe: dict) -> dict:
         "wardrobe_used": None,       # whether the outfit drew on owned pieces
         "fit_card": None,            # what create_fit_card returned
         "error": None,               # set when the run ended early
+        "model_calls": 0,            # model requests this run made (cache hits excluded)
     }
 
 
@@ -167,6 +169,7 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         than a stack trace. The import is already at the top of this file.
     """
     session = new_session(query, wardrobe)
+    calls_before = generate.call_count()
 
     # Each pass does one step and picks the next from what is now in the
     # session. Every tool reads its inputs out of the session, never from the
@@ -179,38 +182,97 @@ def run_agent(query: str, wardrobe: dict) -> dict:
 
         if step == "parse":
             session["parsed"] = parse_query(session["query"])
+            trace.step("parse_query (regex)", inputs=session["query"],
+                       returned=str(session["parsed"]))
             step = "search"
 
         elif step == "search":
             parsed = session["parsed"]
-            # search_listings runs on the MCP server (mcp_server.py), not in-process.
-            session["search_results"] = call_tool("search_listings", {
+            arguments = {
                 "description": parsed["description"],
                 "size": parsed["size"],
                 "max_price": parsed["max_price"],
-            })
+            }
+            # search_listings runs on the MCP server (mcp_server.py), not in-process.
+            try:
+                session["search_results"] = call_tool("search_listings", arguments)
+            except MCPError as exc:
+                session["error"] = (
+                    "The listings search couldn't be reached, so nothing was searched. "
+                    "Try the same query again; if it keeps failing, run "
+                    "`python mcp_server.py` to see why the search server won't start."
+                )
+                trace.step("search_listings (via MCP)", inputs=str(arguments),
+                           returned=str(exc).splitlines()[0], note="MCP call failed, stopping")
+                step = "done"
+                continue
+
             if not session["search_results"]:
                 # The branch: nothing to style, so stop before suggest_outfit.
                 session["error"] = _no_results_message(session["parsed"])
+                trace.step("search_listings (via MCP)", inputs=str(arguments),
+                           returned=session["search_results"],
+                           note="branch: empty, stopping before suggest_outfit")
                 step = "done"
             else:
                 session["selected_item"] = session["search_results"][0]
+                trace.step("search_listings (via MCP)", inputs=str(arguments),
+                           returned=session["search_results"],
+                           note=f"branch: {len(session['search_results'])} found, "
+                                f"selected_item = {session['selected_item']['id']}")
                 step = "suggest"
 
         elif step == "suggest":
-            session["outfit_suggestion"] = suggest_outfit(
-                session["selected_item"], session["wardrobe"]
-            )
             session["wardrobe_used"] = bool((session["wardrobe"] or {}).get("items"))
+            try:
+                session["outfit_suggestion"] = suggest_outfit(
+                    session["selected_item"], session["wardrobe"]
+                )
+            except ModelUnavailable as exc:
+                session["error"] = _model_unavailable_message(session, exc)
+                trace.step("suggest_outfit", inputs=session["selected_item"],
+                           returned=str(exc), note="model unavailable, stopping")
+                step = "done"
+                continue
+            trace.step("suggest_outfit",
+                       inputs=f"item={session['selected_item']['id']}, "
+                              f"wardrobe_items={len((session['wardrobe'] or {}).get('items') or [])}",
+                       returned=session["outfit_suggestion"])
             step = "fit_card"
 
         elif step == "fit_card":
-            session["fit_card"] = create_fit_card(
-                session["outfit_suggestion"], session["selected_item"]
-            )
+            try:
+                session["fit_card"] = create_fit_card(
+                    session["outfit_suggestion"], session["selected_item"]
+                )
+            except ModelUnavailable as exc:
+                session["error"] = _model_unavailable_message(session, exc)
+                trace.step("create_fit_card", inputs=session["selected_item"],
+                           returned=str(exc), note="model unavailable, stopping")
+                step = "done"
+                continue
+            trace.step("create_fit_card",
+                       inputs=f"item={session['selected_item']['id']}, "
+                              f"outfit={len(session['outfit_suggestion'])} chars",
+                       returned=session["fit_card"])
             step = "done"
 
+    session["model_calls"] = generate.call_count() - calls_before
+    trace.step("done", note=f"{count} passes, {session['model_calls']} model calls this run (cache hits not counted)"
+               + (", stopped early" if session["error"] else ""))
     return session
+
+
+def _model_unavailable_message(session: dict, exc: Exception) -> str:
+    """Name what broke, keep what did work, and say what to try."""
+    item = session["selected_item"] or {}
+    return (
+        f"The search worked — it found the {item.get('title', 'item')} "
+        f"(${item.get('price')} on {item.get('platform')}) — but the AI model "
+        f"couldn't be reached, so there's no outfit or fit card. {exc} "
+        f"If you just changed your key, put it back; otherwise wait a minute and "
+        f"ask again."
+    )
 
 
 # ── running it directly ───────────────────────────────────────────────────────
