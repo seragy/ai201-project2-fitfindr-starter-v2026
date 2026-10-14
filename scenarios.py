@@ -29,24 +29,50 @@ SCENARIOS = [
         "criterion": 2,
     },
     {
+        # Criterion 3: state. PASS when the selected_item id in the search
+        # step's trace note equals the item id in suggest_outfit's inputs.
+        "name": "selected item reaches suggest_outfit",
+        "query": "90s track jacket in size M",
+        "wardrobe": "example",
+        "criterion": 3,
+    },
+    # Criterion 4: "the same query three times with the cache off, no two fit
+    # cards identical, in 5 of 5 attempts". The same query is listed three
+    # times. Attempt i is try i of runs A, B and C, and it passes when those
+    # three fit cards are pairwise different text.
+    {
+        "name": "fit card variety run A",
+        "query": "denim jacket under $50",
+        "wardrobe": "example",
+        "criterion": 4,
+    },
+    {
+        "name": "fit card variety run B",
+        "query": "denim jacket under $50",
+        "wardrobe": "example",
+        "criterion": 4,
+    },
+    {
+        "name": "fit card variety run C",
+        "query": "denim jacket under $50",
+        "wardrobe": "example",
+        "criterion": 4,
+    },
+    {
+        # Criterion 5: a run that finds a listing makes at most 2 model calls.
+        # Read from the "done" trace step (session["model_calls"]).
+        "name": "model calls per matching run",
+        "query": "platform sneakers size 8",
+        "wardrobe": "example",
+        "criterion": 5,
+    },
+    {
         # A user with nothing saved. One of unit 4's three failure modes.
         "name": "empty wardrobe",
         "query": "denim jacket under $50",
         "wardrobe": "empty",
         "criterion": None,
     },
-    # TODO: add what your criteria 3, 4 and 5 need.
-    #
-    # Set "criterion" to the number in criteria.md that the scenario tests.
-    # "criterion": None means a diagnostic run — useful to have, but it isn't
-    # one of your five, and run_eval.py marks it as such in the table.
-    #
-    # For a state criterion, any normal query works — what you're checking is
-    # what ends up in the session, not what the user typed.
-    #
-    # For a fit-card criterion, you probably want the SAME query listed more
-    # than once, or several different items, depending on what your criterion
-    # actually says.
 ]
 
 WARDROBES = ("example", "empty")

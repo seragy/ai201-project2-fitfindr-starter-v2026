@@ -200,19 +200,124 @@ Inventory, since the README asks which method I chose.
      `python run_eval.py --label before` runs everything and writes the table
      into results/. Paste it here and fill in the verdicts. -->
 
+Results file: [`results/run_2026-10-14_1949_before.md`](results/run_2026-10-14_1949_before.md), produced by
+`run_eval.py::main`, which calls `agent.py::run_agent` once per try with the
+cache off. PASS and FAIL were marked by applying each criterion's rule to that
+file, as written down below the table. `python score_run.py results/<file>.md`
+applies the same rules and prints the marks.
+
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. Matching query completes all three tools with a fit card | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. Impossible query stops before `suggest_outfit` with a message naming what to change | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. `session["selected_item"]` is the item passed to `suggest_outfit` | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Same query ×3, cache off: no two fit cards identical text | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. A matching run makes ≤ 2 model calls | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Real output from one try**, pasted as text, naming the file and function
-that produced it:
+**How each try was marked**
+
+1. `vintage graphic tee under $30`. PASS if the session has no `error` and has a non-empty `fit_card`.
+2. `designer ballgown size XXS under $5`. PASS if `error` is set, the message names a size, price-ceiling or wording change, and the trace has no `suggest_outfit` step.
+3. `90s track jacket in size M`. PASS if the `selected_item = …` id in the search step's trace note equals the `item=…` id in the `suggest_outfit` step's inputs.
+4. `denim jacket under $50`, listed three times in `scenarios.py` (runs A, B, C). Attempt *i* is try *i* of A, B and C. PASS if all three have a fit card and no two are identical strings.
+5. `platform sneakers size 8`. PASS if the run completed and the `done` trace step reports ≤ 2 model calls (`session["model_calls"]`).
+
+**Real output, try 1 of each criterion.** Each block comes from
+`agent.py::run_agent` (trace steps from `trace.step`; fit cards from
+`tools.py::create_fit_card`), as recorded in the results file.
+
+*Criterion 1:* trace, then the fit card
 
 ```
+[1] parse_query (regex)
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 3 items: Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey, Y2K Baby Tee — Butterfly Print
+      →    branch: 3 found, selected_item = lst_006
+[3] suggest_outfit
+      in:  item=lst_006, wardrobe_items=10
+      out: Outfit One: Streetwear Grunge Pair the graphic tee with your baggy straight-leg jeans in dark blue. Add the bl…
+[4] create_fit_card
+      in:  item=lst_006, outfit=511 chars
+      out: Scored this washed black 2003 tour bootleg tee on Depop for just $24, and the worn-in grunge vibe is unreal. S…
+[5] done
+      →    4 passes, 2 model calls this run (cache hits not counted)
+```
 
+```
+Scored this washed black 2003 tour bootleg tee on Depop for just $24, and the worn-in grunge vibe is unreal. Styled it two ways, from baggy denim streetwear to edgy khaki contrast casual. Can't wait to live in this boxy fit all season. #depopfinds #grungefashion
+```
+
+*Criterion 2:* trace, then `session["error"]`
+
+```
+[1] parse_query (regex)
+      in:  designer ballgown size XXS under $5
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping before suggest_outfit
+[3] done
+      →    2 passes, 0 model calls this run (cache hits not counted), stopped early
+```
+
+```
+Nothing matched "designer ballgown" in size XXS at $5 or less. To find something: try a size other than XXS, or leave size out; raise the price ceiling above $5; use fewer or broader words — every word in the description has to match.
+```
+
+*Criterion 3:* trace (`selected_item = lst_004` in step 2, `item=lst_004` going into step 3)
+
+```
+[1] parse_query (regex)
+      in:  90s track jacket in size M
+      out: {'description': '90s track jacket', 'size': 'M', 'max_price': None}
+[2] search_listings (via MCP)
+      in:  {'description': '90s track jacket', 'size': 'M', 'max_price': None}
+      out: 1 items: 90s Track Jacket — Navy/White Stripe
+      →    branch: 1 found, selected_item = lst_004
+[3] suggest_outfit
+      in:  item=lst_004, wardrobe_items=10
+      out: Outfit 1: Streetwear Casual Pair the Champion track jacket with the white ribbed tank top as your base layer. …
+[4] create_fit_card
+      in:  item=lst_004, outfit=594 chars
+      out: Scored this vintage 90s Champion track jacket on Poshmark for just $45 and I'm obsessed. It's the ultimate lig…
+[5] done
+      →    4 passes, 2 model calls this run (cache hits not counted)
+```
+
+*Criterion 4:* attempt 1, the three fit cards from runs A, B and C
+
+```
+A: Scored this vintage Wrangler cropped denim jacket on Poshmark for just $42 and it’s the ultimate blank canvas for custom patches. The structured shoulders look so good styled up for effortless streetwear or thrown over wide-leg trousers. #DenimStyle #PoshmarkFind
+
+B: Scored this vintage Wrangler cropped denim jacket on Poshmark for just $42 and it has the best structured shoulders. It’s a total blank canvas, making it so easy to style for effortless streetwear looks or clean minimal fits. 
+
+#WranglerStyle #ThriftFinds
+
+C: Scored this vintage Wrangler cropped denim jacket on Poshmark for just $42 and it has the best structured shoulders. It’s a total blank canvas, making it so easy to style for effortless streetwear or casual neutral fits. Can't wait to live in this light wash staple all season long. #denimjacket #poshfinds
+```
+
+*Criterion 5:* trace (the `done` step reports the model calls)
+
+```
+[1] parse_query (regex)
+      in:  platform sneakers size 8
+      out: {'description': 'platform sneakers', 'size': '8', 'max_price': None}
+[2] search_listings (via MCP)
+      in:  {'description': 'platform sneakers', 'size': '8', 'max_price': None}
+      out: 1 items: Platform Sneakers — White Chunky Sole
+      →    branch: 1 found, selected_item = lst_019
+[3] suggest_outfit
+      in:  item=lst_019, wardrobe_items=10
+      out: Outfit One: Embrace the Y2K streetwear vibe. Pair the platform sneakers with your baggy straight-leg jeans, da…
+[4] create_fit_card
+      in:  item=lst_019, outfit=539 chars
+      out: Scored these Y2K white chunky platform sneakers on Poshmark for just $48, and the late-90s streetwear energy i…
+[5] done
+      →    4 passes, 2 model calls this run (cache hits not counted)
 ```
 
 ---
