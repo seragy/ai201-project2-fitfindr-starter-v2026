@@ -20,9 +20,45 @@ That last line is what your loop branches on. "Returns a list" earns nothing —
 the description has to say what is *in* the list.
 """
 
-import config  # noqa: F401 — you'll use this in search_listings
+import re
+
+import config
 from generate import generate
 from utils.data_loader import load_listings
+
+
+# ── shared helpers ────────────────────────────────────────────────────────────
+
+def _size_tokens(size: str | None) -> set[str]:
+    """
+    Break a listing's size into whole, lowercase tokens.
+
+    Parenthetical notes are dropped, then the rest is split on whitespace and
+    "/":  "S/M" → {"s", "m"},  "W30 L30" → {"w30", "l30"},
+    "XL (oversized)" → {"xl"},  "US 8.5" → {"us", "8.5"}.
+    """
+    if not size:
+        return set()
+    without_notes = re.sub(r"\([^)]*\)", " ", size)
+    return {token for token in re.split(r"[\s/]+", without_notes.lower()) if token}
+
+
+def _describe_item(item: dict) -> str:
+    """A listing as prompt text. Every field is guarded — brand is often None."""
+    item = item or {}
+    colors = ", ".join(item.get("colors") or []) or "not listed"
+    tags = ", ".join(item.get("style_tags") or []) or "not listed"
+    return (
+        f"{item.get('title') or 'Untitled item'}\n"
+        f"Category: {item.get('category') or 'unknown'}; "
+        f"size {item.get('size') or 'unknown'}; "
+        f"condition {item.get('condition') or 'unknown'}; "
+        f"brand: {item.get('brand') or 'no brand listed'}\n"
+        f"Price: ${item.get('price')} on {item.get('platform') or 'an unknown platform'}\n"
+        f"Colors: {colors}\n"
+        f"Style: {tags}\n"
+        f"Description: {item.get('description') or ''}"
+    )
 
 
 # ── Tool 1: search_listings ───────────────────────────────────────────────────
@@ -78,8 +114,36 @@ def search_listings(
     Test it from a terminal before you move on:
         python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
     """
-    # TODO: replace this with your implementation
-    return []
+    try:
+        words = (description or "").lower().split()
+        wanted_size = size.strip().lower() if size and size.strip() else None
+
+        scored = []
+        for listing in load_listings():
+            price = listing.get("price")
+            if max_price is not None and (price is None or price > max_price):
+                continue
+
+            if wanted_size is not None and wanted_size not in _size_tokens(listing.get("size")):
+                continue
+
+            searchable = " ".join([
+                listing.get("title") or "",
+                listing.get("description") or "",
+                *(listing.get("style_tags") or []),
+            ]).lower()
+            if not all(word in searchable for word in words):
+                continue
+
+            # Every survivor matched every word, so rank by how many of them
+            # are in the title — a title hit is the stronger signal.
+            title = (listing.get("title") or "").lower()
+            scored.append((sum(word in title for word in words), listing))
+
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return [listing for _, listing in scored[:config.SEARCH_RESULT_LIMIT]]
+    except Exception:  # noqa: BLE001 — the loop branches on [], never on a crash
+        return []
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
@@ -112,8 +176,51 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    title = (new_item or {}).get("title") or "this piece"
+    owned = (wardrobe or {}).get("items") or []
+
+    if owned:
+        lines = []
+        for piece in owned:
+            colors = ", ".join(piece.get("colors") or [])
+            tags = ", ".join(piece.get("style_tags") or [])
+            notes = f" — {piece['notes']}" if piece.get("notes") else ""
+            lines.append(
+                f"- {piece.get('name') or 'unnamed item'} "
+                f"({piece.get('category') or 'unknown'}; colors: {colors}; style: {tags}){notes}"
+            )
+        prompt = (
+            f"Item the user is thinking of buying:\n{_describe_item(new_item)}\n\n"
+            f"What they already own:\n" + "\n".join(lines) + "\n\n"
+            "Suggest one or two complete outfits built around the new item. "
+            "Name the owned pieces exactly as listed. Keep it under 120 words."
+        )
+    else:
+        prompt = (
+            f"Item the user is thinking of buying:\n{_describe_item(new_item)}\n\n"
+            "They haven't saved any wardrobe items yet. Give one or two general "
+            "outfit ideas for this item — what kinds of pieces, colors and shoes "
+            "pair well. Keep it under 120 words."
+        )
+
+    system = "You are a practical thrift-fashion stylist. Plain text, no markdown headings."
+
+    try:
+        text = generate(prompt, system=system).strip()
+    except Exception as exc:  # noqa: BLE001 — keep the reason, don't crash the run
+        text = ""
+        reason = str(exc)
+    else:
+        reason = "the model returned nothing"
+
+    if text:
+        return text
+
+    return (
+        f"Couldn't get outfit ideas ({reason}). As a starting point, wear "
+        f"the {title} with simple basics in neutral colors and let it be "
+        f"the focus."
+    )
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
@@ -152,5 +259,25 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    item = new_item or {}
+    title = item.get("title") or "this thrift find"
+    fallback = f"New thrift find: the {title}. Already planning the first fit. 🛍️"
+
+    if not (outfit or "").strip():
+        return fallback
+
+    prompt = (
+        f"The find:\n{_describe_item(item)}\n\n"
+        f"How it'll be styled:\n{outfit}\n\n"
+        "Write a 2-4 sentence caption someone would actually post about this "
+        "find. Mention the item, its price and the platform once each, and be "
+        "specific about the vibe. At most two hashtags. Return only the caption."
+    )
+    system = "You write short, casual social captions. No preamble, no quotes around the caption."
+
+    try:
+        caption = generate(prompt, system=system).strip()
+    except Exception:  # noqa: BLE001 — a caption is never worth a crash
+        caption = ""
+
+    return caption or fallback
