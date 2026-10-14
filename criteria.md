@@ -52,6 +52,18 @@ than 4 of 5 because at this temperature an identical repeat would mean something
 is wrong — the cache is on, or the temperature setting isn't taking effect —
 rather than normal variation.
 
+> **Revised in unit 4:** Running the same query three times with the cache off,
+> no two of the three fit cards open with the same first three words — in 5 of
+> 5 attempts.
+>
+> **Why revised:** "Identical text" measured the wrong thing. In the before run
+> it passed 5 of 5, but 25 of the 35 fit cards opened with "Scored", and in 4
+> of the 5 attempts at least two of the three cards opened with the same three
+> words ("scored this vintage" three times in attempt 1). Two captions that
+> differ by one adjective still counted as different. The criterion exists
+> because a caption that reads like a template isn't a caption, and the old
+> version couldn't see a template. The new version can. The target stays 5 of 5.
+
 5. A run that finds at least one listing makes no more than 2 model calls —
    in 5 of 5 runs.
 

@@ -69,8 +69,20 @@ for i in range(len(a)):
     ok = all(cards) and len(set(cards)) == 3
     rows[4].append((ok, f"{sum(1 for x in cards if x)} cards, {len(set(x for x in cards if x))} distinct"))
 
-targets = {1: 4, 2: 5, 3: 5, 4: 5, 5: 5}
-for n in sorted(rows):
+# Criterion 4 as revised in unit 4: no two of the three cards share their
+# first three words (lowercased, punctuation stripped).
+def opener(card):
+    return tuple(re.sub(r"[^a-z0-9' ]", "", card.lower()).split()[:3])
+
+rows["4r"] = []
+for i in range(len(a)):
+    cards = [fit_card(t[i]) for t in (a, b_, c)]
+    openers = [opener(x) for x in cards if x]
+    ok = len(openers) == 3 and len(set(openers)) == 3
+    rows["4r"].append((ok, " | ".join(" ".join(o) for o in openers)))
+
+targets = {1: 4, 2: 5, 3: 5, 4: 5, "4r": 5, 5: 5}
+for n in [1, 2, 3, 4, "4r", 5]:
     passes = sum(ok for ok, _ in rows[n])
     verdict = "MET" if passes >= targets[n] else "MISSED"
     print(f"{n}: {' '.join('PASS' if ok else 'FAIL' for ok, _ in rows[n])}  -> {verdict} ({passes}/5)")

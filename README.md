@@ -342,16 +342,54 @@ C: Scored this vintage Wrangler cropped denim jacket on Poshmark for just $42 an
 
 | # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
+| 1 | Matching query completes with a fit card | 4 of 5 | MET (5/5) | All five tries had no `error` and a non-empty `fit_card` |
+| 2 | Impossible query stops before `suggest_outfit`, names what to change | 5 of 5 | MET (5/5) | All five stopped at the search step, with no `suggest_outfit` in the trace, and the message names size, price ceiling and wording |
+| 3 | `selected_item` is the item passed to `suggest_outfit` | 5 of 5 | MET (5/5) | `lst_004` selected and `lst_004` received, in all five traces |
+| 4 | Same query ×3: no two fit cards identical | 5 of 5 | MET (5/5) | No identical strings in any attempt. **But see the revision below** |
+| 4 (revised) | Same query ×3: no two fit cards share their first three words | 5 of 5 | **MISSED (1/5)** | Only attempt 5 had three different openers. Scored on the same before-run data by `score_run.py` |
+| 5 | Matching run makes ≤ 2 model calls | 5 of 5 | MET (5/5) | The `done` step reported exactly 2 in all five |
 
 **Diagnoses**
 
+**I missed nothing as originally written, and that says more about my targets
+than about my agent.** Taking the criteria one at a time:
 
+- **Criterion 1 was too easy, and its reason was never tested.** I gave it 4 of
+  5 because "some phrasings will miss". But the scenario used one phrasing, and
+  the search step is deterministic, so all five tries searched the same thing
+  and got the same three tees. Only a model failure could have failed a try. It
+  also counts *any* fit card as a pass, even for the wrong item. In unit 3,
+  `search_listings('graphic tee')` returned a mesh long-sleeve top because its
+  description mentions a graphic tee, and criterion 1 would have passed that. I'd
+  tighten it to five *different* phrasings of matching queries, where the
+  selected item's category also has to match what was asked for.
+- **Criterion 3 passes by construction.** `run_agent` passes
+  `session["selected_item"]` straight into `suggest_outfit`, so the trace
+  comparison can only fail if I break that line. That's the honest answer to
+  "why 5 of 5". It's still worth keeping as a regression check, but it was never
+  at risk. A tighter version would check what reached the model, e.g. that
+  `suggest_outfit`'s prompt contains the selected item's title.
+- **Criteria 2 and 5 are deterministic and should be 5 of 5.** The branch is an
+  `if` on an empty list, and the call count is fixed by the loop's shape. Both
+  met their targets for the reasons I gave in unit 3.
+- **Criterion 4 measured the wrong thing, so I revised it** (in `criteria.md`,
+  under the original). At temperature 0.9, two byte-identical captions are close
+  to impossible, so "no two identical" could only fail if the cache was on. The
+  revised version asks whether the captions *read* differently, and it misses.
 
+**The miss: criterion 4 (revised), 1 of 5. Where: the model's output, caused by
+the prompt in `tools.py::create_fit_card`.** The tool worked: every run returned
+a caption that mentions the item, price and platform. The problem is the
+prompt's instruction to "mention the item, its price and the platform once
+each". The single sentence that fits all three is a purchase announcement,
+"Scored this \<item\> on \<platform\> for $\<price\>". Nothing in the prompt says
+how to open, so the model leads with that sentence. Temperature 0.9 varies the
+adjective after "Scored this" but not the opening.
+
+**It's a pattern, not a fluke.** It isn't specific to the denim jacket: 25 of
+the 35 fit cards across *every* scenario open with "Scored" (21 of them with
+"Scored this"). So it's one problem with one cause, the prompt, not three
+separate misses.
 ---
 
 ## Loop Trace
