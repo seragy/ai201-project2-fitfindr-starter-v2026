@@ -39,123 +39,142 @@
 
 ## What This Does
 
-<!-- Three or four sentences: what a user asks for, and what they get back. -->
-
-
+FitFindr is a three-tool agent over a file of 40 secondhand clothing listings.
+A user asks for something in plain language — "a vintage graphic tee under $30"
+— and the agent searches the listings, works out what the item would go with
+using the example wardrobe, and writes a short caption someone could post. If
+nothing matches the query, it stops before calling the model and says what to
+change instead of guessing.
 
 ---
 
 ## Tool Inventory
 
-<!-- Four lines per tool. This is worth 2 points and it's the single most
-     common place students lose them.
-
-     "Returns a list" earns NOTHING. The description has to say what is IN
-     the list.
-
-     The empty case isn't optional either — it's the thing your loop branches
-     on, and if you don't decide it here you'll discover it as a crash in
-     Milestone 5. -->
+Query parsing happens before any tool runs, in `agent.py::parse_query`. It is
+**regex-based, not model-based**: one pattern pulls out a price ceiling
+(`under $30`, `below 30`, `$30`), another pulls out a size (`size M`), and the
+rest becomes the description after filler words (`looking`, `for`, `a`, `the`,
+`in`, `size`, …) are stripped. The stripping matters because search ANDs every
+word — without it, "looking for a vintage graphic tee" would match nothing.
 
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Filters the 40 listings from `utils/data_loader.load_listings()` by price, size and keywords; no model call. Keywords are matched against the listing's `title` + `description` + `style_tags`, lowercased into one string, and **every** word in the description must appear in it (AND, not OR). Words match as substrings, so "tee" also matches "tees". Size is compared as whole tokens: the listing's size is split on whitespace and `/`, parenthetical notes like "(oversized)" are dropped, and the query size must equal one token case-insensitively — so "M" matches "S/M" and "M/L" but not "W30 L30". Survivors are sorted title-first (more query words in the title ranks higher) and capped at `config.SEARCH_RESULT_LIMIT` (10).
+- **Inputs:** `description` (str or None — None/empty means no keyword filter), `size` (str or None — None means no size filter), `max_price` (float or None, inclusive — None means no price filter)
+- **Returns:** `list[dict]` of up to 10 listing dicts, best match first, each with `id` (str), `title` (str), `description` (str), `category` (str), `style_tags` (list[str]), `size` (str), `condition` (str), `price` (float), `colors` (list[str]), `brand` (str or None), `platform` (str)
+- **When it has nothing:** `[]` — an empty list, never None and never an exception (any error inside also returns `[]`). This is what the loop branches on.
 
 ### `suggest_outfit`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Calls the model through `generate()` to suggest one or two outfits built around the new item. With a wardrobe, the prompt lists every owned piece (name, category, colors, style tags, notes) and asks the model to name them exactly; with an empty wardrobe it asks for general styling advice instead. Every listing field is guarded, since `brand` is None on most listings.
+- **Inputs:** `new_item` (dict — a listing dict), `wardrobe` (dict with an `items` key holding a list of wardrobe-item dicts; may be empty)
+- **Returns:** `str` — non-empty outfit suggestion text, under ~120 words. Whether the wardrobe was used is recorded by the loop in `session["wardrobe_used"]` (bool), not returned.
+- **When it has nothing:** An empty wardrobe still returns general styling advice. If the model returns empty text or the call fails, it returns a fallback string that says it couldn't get outfit ideas (with the reason) and suggests pairing the item, by title, with neutral basics. Never None, never "".
 
 ### `create_fit_card`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Calls the model through `generate()` to write a 2–4 sentence caption someone would actually post — mentions the item, its price and its platform once each, specific about the vibe, at most two hashtags.
+- **Inputs:** `outfit` (str — the text from `suggest_outfit`), `new_item` (dict — a listing dict)
+- **Returns:** `str` — the caption.
+- **When it has nothing:** If `outfit` is empty or whitespace, or the model returns empty text or fails, it returns a short fallback caption naming the item: `New thrift find: the {title}. Already planning the first fit. 🛍️`. Never None, never "".
+
+**Known limitation:** the two model-calling tools catch all errors including API
+failures, so a bad key produces a fallback caption rather than surfacing the
+error to the agent. Unit 4's error handling will need this changed.
 
 ---
 
 ## Planning Loop
 
-<!-- Your branch rule, stated as a rule — the condition AND both paths — plus
-     the file and function that holds it.
-
-     Like this:
-       "If search_listings returns an empty list, put a message in the session
-        and stop. Otherwise take the first result and go to suggest_outfit."
-        — agent.py::run_agent
-
-     The grader checks your code against what you claim here, so the file and
-     function have to be real. -->
-
-**Branch rule:**
+**Branch rule:** If search_listings returns an empty list, put a message in the
+session naming what the user could change — the size, the price ceiling, or the
+wording — and stop. suggest_outfit is never called and session["fit_card"] stays
+None. Otherwise take the first result, store it as session["selected_item"], and
+continue to suggest_outfit and then create_fit_card.
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** Regex, not the model — `agent.py::parse_query` (see Tool Inventory).
 
-**What moves through the session:** <!-- which fields, in what order -->
+**What moves through the session:** Each tool's result is written into the
+session and read back out of it for the next call, rather than passed directly
+from one call to the next — in order, `parsed` → `search_results` →
+`selected_item` → `outfit_suggestion` and `wardrobe_used` → `fit_card`, with
+`error` set instead when the search comes back empty. The loop runs one step per
+pass and calls `trace.check_iterations()` on every pass, so it stops at
+`config.MAX_ITERATIONS`.
 
 ---
 
 ## Sample Run
 
-<!-- Two things go here.
-
-     1. One FULL query and its output, pasted as text.
-     2. Your three per-tool terminal tests — the command and what it printed. -->
-
-**One full query**
-
-```
-$ python app.py ask '...'
-
-```
-
 **The three tools, tested one at a time**
 
 ```
 $ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
-
+[{'id': 'lst_006', 'title': 'Graphic Tee — 2003 Tour Bootleg Style', 'description': 'Vintage-style bootleg tee with faded graphic. Slightly boxy fit. 100% cotton, soft and worn-in.', 'category': 'tops', 'style_tags': ['graphic tee', 'vintage', 'grunge', 'streetwear', 'band tee'], 'size': 'L', 'condition': 'good', 'price': 24.0, 'colors': ['black'], 'brand': None, 'platform': 'depop'}, {'id': 'lst_002', 'title': 'Y2K Baby Tee — Butterfly Print', 'description': 'Super cute early 2000s baby tee with butterfly graphic. Fitted crop length. Tag says medium but fits like a small.', 'category': 'tops', 'style_tags': ['y2k', 'vintage', 'graphic tee', 'cottagecore'], 'size': 'S/M', 'condition': 'excellent', 'price': 18.0, 'colors': ['white', 'pink', 'purple'], 'brand': None, 'platform': 'depop'}, {'id': 'lst_033', 'title': 'Vintage Band Tee — Faded Grey', 'description': 'Faded grey band-style tee with distressed graphic. Crew neck. Fits boxy. Well-loved but no holes or major damage.', 'category': 'tops', 'style_tags': ['vintage', 'grunge', 'band tee', 'graphic tee', 'streetwear'], 'size': 'L', 'condition': 'fair', 'price': 19.0, 'colors': ['grey', 'charcoal'], 'brand': None, 'platform': 'depop'}, {'id': 'lst_017', 'title': 'Mesh Long-Sleeve Top — Black', 'description': 'Sheer black mesh long-sleeve. Great for layering under a graphic tee or over a bralette. Stretchy material, fits true to size.', 'category': 'tops', 'style_tags': ['y2k', 'grunge', 'goth', 'layering'], 'size': 'S/M', 'condition': 'excellent', 'price': 15.0, 'colors': ['black'], 'brand': None, 'platform': 'depop'}]
 ```
 
 ```
-$ python -c "from tools import suggest_outfit; ..."
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
+Outfit One:
+Pair your vintage Levi's 501 jeans with the white ribbed tank top tucked in. Layer the oversized grey crewneck sweatshirt over top, letting the hem peek out. Slip into the chunky white sneakers and add the black crossbody bag for an effortless streetwear look.
 
+Outfit Two:
+Style the vintage Levi's 501 jeans with the black cropped zip hoodie. Throw on the vintage black denim jacket for a cool double-denim moment. Finish the outfit with the black combat boots and the black crossbody bag for a grungy, everyday vibe.
 ```
 
 ```
-$ python -c "from tools import create_fit_card; ..."
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
+Scored these vintage Levi's 501 jeans on Depop for just $38 and they are the ultimate everyday staple. That medium wash and broken-in knee fading give off the most effortless 90s streetwear vibe. Just throwing them on with crisp white sneakers and I'm out the door. #vintagelevis #denimstyle
+```
 
+**One full query**
+
+```
+$ python app.py ask 'vintage graphic tee under $30'
+
+  Found:    Graphic Tee — 2003 Tour Bootleg Style — $24.0 on depop
+
+  Outfit:   Outfit One: Skate Grunge
+Pair the graphic tee with your baggy straight-leg jeans, worn with the brown leather belt. Add the black cropped zip hoodie layered underneath for an edgy look, and lace up your black combat boots. Finish with the black crossbody bag.
+
+Outfit Two: Contrast Casual
+Tuck the graphic tee into your wide-leg khaki trousers, styled with the brown leather belt. Throw on the slightly cropped vintage black denim jacket over top. Complete the outfit with your chunky white sneakers and the black crossbody bag for an effortless streetwear vibe.
+
+  Fit card: Scored this perfectly faded 2003 tour bootleg graphic tee on Depop for just $24. It has that ultimate worn-in grunge feel that’s so hard to find. Can’t wait to style it for both skate days and casual street fits. #depopfinds #vintagestyle
+
+2 model calls this session, 691 prompt + 178 output tokens
+```
+
+**The empty-search branch**
+
+```
+$ python app.py ask 'designer ballgown size XXS under $5'
+
+  Nothing matched "designer ballgown" in size XXS at $5 or less. To find something: try a size other than XXS, or leave size out; raise the price ceiling above $5; use fewer or broader words — every word in the description has to match.
+
+0 model calls this session
 ```
 
 ---
 
 ## How I Used AI
 
-<!-- Two specific moments. What you asked, what came back, what you changed.
+**1.** I gave Claude Code a spec saying suggest_outfit should return
+{"text", "wardrobe_used"}, while also telling it not to change the stub
+signatures. It caught the contradiction — the stub returns -> str, and returning
+a dict would make `app.py` print a raw dict repr instead of the suggestion text.
+I kept the stub's -> str and moved wardrobe_used into session["wardrobe_used"]
+instead, which turned out better than what I'd asked for: criterion 3 is about
+inspectable state, and that's one more thing I can check in the session.
 
-     "I used Claude to help me code" is not enough.
-
-     "I gave Claude my search_listings spec. It returned None on no match
-     instead of an empty list, so I changed it" is the level we want. -->
-
-**Moment 1**
-
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
-
-**Moment 2**
-
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+**2.** My search requires every word in the query to appear in a listing, which
+Claude Code pointed out would break the starter's own example query — "looking
+for a vintage graphic tee under $30" finds nothing, because no listing contains
+"looking" or "for". It added filler-word stripping to the regex parser before
+the AND-match. I kept that, and wrote the parsing approach into my Tool
+Inventory, since the README asks which method I chose.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
